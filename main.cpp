@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cmath>
+#include <random>
 #include "SFML/Graphics.hpp"
 
 sf::Vector3f rotY(sf::Vector3f &dir, float angle) {
@@ -37,6 +38,9 @@ int main() {
 
     float speed = 0.1;
 
+    std::random_device rd;
+    std::mt19937 e2(rd());
+    std::uniform_real_distribution<> dist(0.0f, 1.0f);
 
     sf::Vector3f pos = sf::Vector3f(-5.0f, 0.0f, 0.0f);
 
@@ -135,6 +139,7 @@ int main() {
 
         shader.setUniform("u_mouse", sf::Vector2f(mx, my));
         shader.setUniform("u_pos", pos);
+        shader.setUniform("u_seed", sf::Vector2f((float)dist(e2), (float)dist(e2)) * 999.0f);
 
         // draw everything here...
         window.draw(sprite, &shader);

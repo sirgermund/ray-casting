@@ -2,8 +2,11 @@
 uniform vec2 u_resolution;
 uniform vec2 u_mouse;
 uniform vec3 u_pos;
+uniform vec2 u_seed;
 
+const int MAX_REF = 128;
 const float MAX_DIST = 99999.0;
+const float PHI = 1.61803398874989484820459;  // Φ = Golden Ratio
 const vec3 light = normalize(vec3(-0.5, 0.75, -1.0));
 const vec3 skyblue = vec3(0.529, 0.808, 0.922);
 
@@ -12,6 +15,7 @@ struct Sphere {
     vec3 origin;
     float radius;
 };
+
 
 mat3 rotY(float angle) {
     float s = sin(angle);
@@ -23,6 +27,22 @@ mat3 rotZ(float angle) {
     float s = sin(angle);
     float c = cos(angle);
     return mat3(c, -s, 0, s, c, 0, 0, 0, 1);
+}
+
+float random(in vec2 xy) {
+    return fract(tan(distance(xy*PHI, xy)*u_seed)*xy.x);
+}
+
+vec3 randomOnSphere(vec2 st) {
+    vec3 rand = vec3(random(st), random(st + vec2(1.0)), random(st + vec2(10.0)));
+    float theta = rand.x * 2.0 * 3.14159265;
+    float v = rand.y;
+    float phi = acos(2.0 * v - 1.0);
+    float r = pow(rand.z, 1.0 / 3.0);
+    float x = r * sin(phi) * cos(theta);
+    float y = r * sin(phi) * sin(theta);
+    float z = r * cos(phi);
+    return vec3(x, y, z);
 }
 
 vec2 sphIntersect(in vec3 ro, in vec3 rd, in vec3 ce, float ra) {
@@ -61,19 +81,28 @@ vec3 getSky(vec3 rd) {
     return clamp(sun + col, 0.0, 1.0);
 }
 
-vec3 castRay(inout vec3 ro, inout vec3 rd) {
+vec4 castRay(inout vec3 ro, inout vec3 rd) {
     vec2 minIt = vec2(MAX_DIST);
     vec2 it;
     vec3 n;
-    vec3 col;
+    vec4 col;
 
     Sphere sphere = Sphere(vec3(1.0, 0.2, 0.1), vec3(0), 1.0);
     it = sphIntersect(ro, rd, sphere.origin, sphere.radius);
     if(it.x > 0.0 && it.x < minIt.x) {
         minIt = it;
         vec3 itPos = ro + rd * it.x;
-        n = itPos - sphere.origin;
-        col = sphere.color;
+        n = normalize(itPos - sphere.origin);
+        col = vec4(sphere.color, 1);
+    }
+
+    sphere = Sphere(vec3(1, 1, 1), vec3(-2, -2, 0), 1.0);
+    it = sphIntersect(ro, rd, sphere.origin, sphere.radius);
+    if(it.x > 0.0 && it.x < minIt.x) {
+        minIt = it;
+        vec3 itPos = ro + rd * it.x;
+        n = normalize(itPos - sphere.origin);
+        col = vec4(sphere.color, -1);
     }
 
     vec3 boxN;
@@ -82,7 +111,23 @@ vec3 castRay(inout vec3 ro, inout vec3 rd) {
     if(it.x > 0.0 && it.x < minIt.x) {
         minIt = it;
         n = boxN;
-        col = vec3(0.1, 0.5, 0.2);
+        col = vec4(0.1, 0.5, 0.2, 0.5);
+    }
+
+    boxPos = vec3(0.0, 8.0, 0.0);
+    it = boxIntersection(ro - boxPos, rd, vec3(1.0), boxN);
+    if(it.x > 0.0 && it.x < minIt.x) {
+        minIt = it;
+        n = boxN;
+        col = vec4(0.1, 0.5, 0.2, 1);
+    }
+
+    boxPos = vec3(0.0, 12.0, 0.0);
+    it = boxIntersection(ro - boxPos, rd, vec3(1.0), boxN);
+    if(it.x > 0.0 && it.x < minIt.x) {
+        minIt = it;
+        n = boxN;
+        col = vec4(0.1, 0.5, 0.2, 1);
     }
 
     vec3 planeNormal = vec3(0.0, 0.0, -1.0);
@@ -90,24 +135,42 @@ vec3 castRay(inout vec3 ro, inout vec3 rd) {
     if(it.x > 0.0 && it.x < minIt.x) {
         minIt = it;
         n = planeNormal;
-        col = vec3(0.5);
+        col = vec4(0.5, 0.5, 0.5, 0);
     }
-    if(minIt.x == MAX_DIST) return vec3(-1.0);
-    float diffuse = dot(light, n) * 0.5 + 0.5;
-    float specular = pow(max(0.0, dot(reflect(rd, n), light)), 32.0);
-    col *= mix(diffuse, specular, 0.5);
+    if(minIt.x == MAX_DIST) return vec4(-2.0);
+    if(col.a < 0.0) {
+        ro += rd * (minIt.y + 0.001);
+        rd = refract(rd, n, 1.0 / (1.0 - col.a));
+        return col;
+    }
 
-    ro += rd * (minIt.x - 0.001);
-    rd = n;
+    vec3 itPos = ro + rd * it.x;
+    vec3 rand = randomOnSphere(itPos.xy + itPos.zz + u_seed);
+    vec3 spec = reflect(rd, n);
+    vec3 diff = normalize(rand * dot(rand, n));
+
+
+    ro += rd * (minIt.x - 0.0001);
+    rd = mix(diff, spec, col.a);
 
     return col;
 }
 
 vec3 traceRay(vec3 ro, vec3 rd) {
-    vec3 col = castRay(ro, rd);
-    if (col.x == -1.0) return getSky(rd);
-    vec3 lightDir = light;
-    if (dot(rd, light) > 0 && castRay(ro, lightDir).x != -1.0) col *= 0.5;
+    vec3 col = vec3(1);
+    float reflectivity = 1.0;
+    for (int i = 0; i < MAX_REF; ++i) {
+        vec4 refCol = castRay(ro, rd);
+        if (refCol.x == -2.0) return mix(col, col * getSky(rd), reflectivity);
+        vec3 lightDir = light;
+        vec3 shadowRo = ro;
+        if(refCol.a < 0.0) refCol.a = 1.0;
+        if(castRay(shadowRo, lightDir).x != -2.0) refCol.rgb *= vec3(min(1.0, refCol.a + 0.3));
+        col *= mix(vec3(1.0), refCol.rgb, reflectivity);
+        reflectivity *= refCol.a;
+
+    }
+
     return col;
 }
 
