@@ -110,8 +110,6 @@ vec3 getSky(vec3 rd) {
     vec3 col = skyblue;
     vec3 sun = vec3(0.95, 0.9, 1.0);
     sun *= max(0.0, pow(dot(rd, light), 64.0));
-    if (!isFirstRay)
-        col *= 0.01;
     return clamp(sun + col, 0.0, 1.0);
 }
 

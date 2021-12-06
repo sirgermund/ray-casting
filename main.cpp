@@ -46,10 +46,11 @@ int main() {
 
     sf::Vector3f pos = sf::Vector3f(-5.0f, 0.0f, 0.0f);
 
-    sf::RenderWindow window(sf::VideoMode(w, h), "Ray tracing", sf::Style::Titlebar | sf::Style::Close);
+    sf::RenderWindow window(sf::VideoMode(w, h), "Ray tracing", sf::Style::Titlebar | sf::Style::Close | sf::Style::Fullscreen);
     window.setFramerateLimit(60);
     window.setMouseCursorVisible(mouseVisible);
 //    sf::Mouse::setPosition(sf::Vector2i(w / 2, h / 2), window);
+    std::cout << "Using OpenGL " << window.getSettings().majorVersion << "." << window.getSettings().minorVersion << std::endl;
 
     sf::RenderTexture firstTexture;
     firstTexture.create(w, h);
@@ -66,7 +67,7 @@ int main() {
     outputTextureSpriteFlipped.setPosition(0, h);
 
     sf::Shader shader;
-    shader.loadFromFile("shader.glsl", sf::Shader::Fragment);
+    shader.loadFromFile("new_shader.glsl", sf::Shader::Fragment);
     shader.setUniform("u_resolution", sf::Vector2f(w, h));
 
     // text
