@@ -5,10 +5,14 @@ in vec4 gl_FragCoord;
 out vec4 outColor;
 
 uniform vec2 u_resolution;
+uniform vec3 u_pos;
+uniform vec2 u_mouse;
 
 #define FAR_DISTANCE 1000000.0
 #define SPHERE_COUNT 2
 #define BOX_COUNT 1
+#define PLANE_COUNT 1
+#define MAX_DEPTH 2
 
 struct Material {
     vec3 emmitance;
@@ -30,6 +34,12 @@ struct Sphere {
     float r;
 };
 
+struct Plane {
+    Material material;
+    vec3 normal;
+    float z;
+};
+
 struct Ray {
     vec3 origin;
     vec3 dir;
@@ -43,11 +53,16 @@ struct Intersection {
 
 Sphere spheres[SPHERE_COUNT];
 Box boxes[BOX_COUNT];
+Plane planes[PLANE_COUNT];
 
 void init() {
     spheres = Sphere[SPHERE_COUNT](
-        Sphere(Material(vec3(1.0), vec3(1.0), 1.0, 1.0), vec3(0), 1.0),
-        Sphere(Material(vec3(0.5), vec3(1.0), 1.0, 1.0), vec3(3.0, 0.0, 0.0), 3.0)
+        Sphere(Material(vec3(0.05, 0.0, 0.0), vec3(1.0, 0.0, 0.0), 0.0, 0.0), vec3(0), 1.0),
+        Sphere(Material(vec3(1.0, 1.0, 1.0), vec3(0.0), 0.0, 0.0), vec3(-1.0, 1.0, 2.0), 0.5)
+    );
+
+    planes = Plane[PLANE_COUNT](
+        Plane(Material(vec3(0.0, 0.5, 0.5), vec3(1.0, 1.0, 1.0), 0.0, 0.0), vec3(0.0, 0.0, 1.0), 2.0)
     );
 }
 
@@ -78,6 +93,13 @@ vec2 boxIntersection(in Ray ray, in Box box, out vec3 outNormal) {
     return vec2( tN, tF );
 }
 
+// plane degined by p (p.xyz must be normalized)
+bool plaIntersect(in Ray ray, in Plane plane, out float distance) {
+    vec4 p = vec4(plane.normal, plane.z);
+    distance = -(dot(ray.origin,p.xyz)+p.w)/dot(ray.dir,p.xyz);
+    return distance > 0.0;
+}
+
 bool castRay(in Ray ray, out Intersection intersection) {
     float minDistance = FAR_DISTANCE;
 
@@ -88,9 +110,22 @@ bool castRay(in Ray ray, out Intersection intersection) {
         if (sphIntersect(ray, sphere, distance) && distance < minDistance) {
             minDistance = distance;
             vec3 pos = ray.origin + ray.dir * distance;
-            vec3 normal = normalize(pos - ray.origin);
+            vec3 normal = normalize(pos - sphere.pos);
 
             intersection = Intersection(pos, normal, sphere.material);
+        }
+    }
+
+    for (int i = 0; i < PLANE_COUNT; ++i) {
+        Plane plane = planes[i];
+        float distance;
+
+        if (plaIntersect(ray, plane, distance) && distance < minDistance) {
+            minDistance = distance;
+            vec3 pos = ray.origin + ray.dir * distance;
+            vec3 normal = plane.normal;
+
+            intersection = Intersection(pos, normal, plane.material);
         }
     }
 
@@ -98,24 +133,53 @@ bool castRay(in Ray ray, out Intersection intersection) {
 }
 
 vec3 traceRay(Ray ray) {
+    vec3 L = vec3(0.0); // суммарное количество света
+    vec3 F = vec3(1.0); // коэффициент отражения
+
     Intersection intersection;
-    if (castRay(ray, intersection)) {
-        return intersection.material.emmitance;
+
+    for (int i = 0; i < MAX_DEPTH; i++) {
+        if (castRay(ray, intersection)) {
+            ray.dir = reflect(ray.dir, intersection.normal);
+            ray.origin = intersection.pos;
+
+            L += F * intersection.material.emmitance;
+            F *= intersection.material.reflectance;
+        } else {
+            F = vec3(0.0);
+        }
     }
-    return vec3(0.0);
+    return L;
 }
 
 vec2 tranformCoord() {
     vec2 uv = gl_FragCoord.xy / u_resolution;
     uv -= 0.5;
     uv.x *= u_resolution.x / u_resolution.y;
+    uv.y = -uv.y;
     return uv;
+}
+
+mat3 rotY(float angle) {
+    float s = sin(angle);
+    float c = cos(angle);
+    return mat3(c, 0, s, 0, 1, 0, -s, 0, c);
+}
+
+mat3 rotZ(float angle) {
+    float s = sin(angle);
+    float c = cos(angle);
+    return mat3(c, -s, 0, s, c, 0, 0, 0, 1);
 }
 
 void main() {
     vec2 uv = tranformCoord();
     init();
-    Ray ray = Ray(vec3(-5.0, 0.0, 0.0), normalize(vec3(1.0, uv)));
+
+    Ray ray = Ray(u_pos, normalize(vec3(1.0, uv)));
+    ray.dir *= rotY(u_mouse.y);
+    ray.dir *= rotZ(u_mouse.x);
+
     vec3 col = traceRay(ray);
     outColor = vec4(col, 1.0);
 }
